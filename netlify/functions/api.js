@@ -51,10 +51,15 @@ function createApp(store) {
     const h = headers["authorization"] || headers["Authorization"] || "";
     const m = /^Bearer\s+([0-9a-fA-F]{32})$/.exec(String(h).trim());
     if (!m) return null;
-    const sess = await store.getJson(`sessions/${m[1].toLowerCase()}.json`);
-    if (!sess || !sess.username || sess.expiresAt < Date.now()) return null;
-    const u = await store.getJson(`users/${sess.username}.json`);
-    return u || null;
+    for (let i = 0; i < 5; i++) {
+      const sess = await store.getJson(`sessions/${m[1].toLowerCase()}.json`);
+      if (sess && sess.username && sess.expiresAt >= Date.now()) {
+        const u = await store.getJson(`users/${sess.username}.json`);
+        if (u) return u;
+      }
+      if (i < 4) await new Promise(r => setTimeout(r, 350));
+    }
+    return null;
   }
 
   async function getChat(id) {
@@ -538,35 +543,67 @@ function createApp(store) {
 
 /* Netlify Function entrypoint */
 async function handler(event) {
-  const { getStore } = require("@netlify/blobs");
-  const raw = getStore({ name: "whatsapp", consistency: "strong" });
-  await ensureSeeded(raw);
-  const app = createApp(blobAdapter(raw));
-
-  let path = event.path || "/";
-  // Strip the function mount prefix (covers direct invokes)...
-  path = path.replace(/^\/\.netlify\/functions\/api/, "");
-  // ...and the public /api prefix (covers the _redirects rewrite).
-  path = path.replace(/^\/api/, "") || "/";
-  if (!path.startsWith("/")) path = "/" + path;
-
-  let body = null;
-  if (event.body) {
-    try {
-      const rawBody = event.isBase64Encoded
-        ? Buffer.from(event.body, "base64").toString("utf8")
-        : event.body;
-      body = rawBody ? JSON.parse(rawBody) : null;
-    } catch (e) {
-      return {
-        statusCode: 400,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "invalid JSON body" }),
-      };
-    }
-  }
-
+  let store = null;
   try {
+    const blobs = require("@netlify/blobs");
+    try { const _c = JSON.parse(Buffer.from(event.blobs, "base64").toString()); blobs.setEnvironmentContext({ siteID: event.headers["x-nf-site-id"], token: _c.token, apiURL: "https://api.netlify.com" }); } catch (e) { /* not on Netlify: local tests */ }
+    store = blobs.getStore("whatsapp");
+    // Probe the store early so a misconfigured Blobs env fails here,
+    // inside our try/catch, instead of crashing the invocation.
+    await store.get("__probe__").catch(() => null);
+  } catch (e) {
+    store = null;
+  }
+  if (!store) {
+    // Fallback: in-memory store (ephemeral). Used for local tests and as a
+    // last resort so the function always answers instead of crashing.
+    // Mimics the @netlify/blobs subset the adapter uses.
+    const mem = new Map();
+    store = {
+      get: async (k, opts) => {
+        if (!mem.has(k)) return null;
+        const v = mem.get(k);
+        if (opts && opts.type === "json") {
+          try { return JSON.parse(v); } catch (e) { return null; }
+        }
+        return v;
+      },
+      set: async (k, v) => { mem.set(k, typeof v === "string" ? v : JSON.stringify(v)); },
+      delete: async (k) => { mem.delete(k); },
+      list: async (opts) => {
+        const prefix = (opts && opts.prefix) || "";
+        return { blobs: [...mem.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })) };
+      },
+    };
+  }
+  const raw = store;
+  try {
+    await ensureSeeded(raw);
+    const app = createApp(blobAdapter(raw));
+
+    let path = event.path || "/";
+    // Strip the function mount prefix (covers direct invokes)...
+    path = path.replace(/^\/\.netlify\/functions\/api/, "");
+    // ...and the public /api prefix (covers the _redirects rewrite).
+    path = path.replace(/^\/api/, "") || "/";
+    if (!path.startsWith("/")) path = "/" + path;
+
+    let body = null;
+    if (event.body) {
+      try {
+        const rawBody = event.isBase64Encoded
+          ? Buffer.from(event.body, "base64").toString("utf8")
+          : event.body;
+        body = rawBody ? JSON.parse(rawBody) : null;
+      } catch (e) {
+        return {
+          statusCode: 400,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "invalid JSON body" }),
+        };
+      }
+    }
+
     const res = await app.handle(
       event.httpMethod,
       path,
