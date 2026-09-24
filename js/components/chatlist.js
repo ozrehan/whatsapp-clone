@@ -1,16 +1,18 @@
 "use strict";
 window.W = window.W || {};
 
-// --- Chat list ---------------------------------------------------------
-// NOTE: W.renderStatusStrip() is owned by status.js. We must NOT define it
-// here, but we do call it (guarded) after every chat-list render.
+/* =====================================================================
+   chatlist.js — renders the sidebar chat list from W.store.chats
+   (GET /api/chats). Server returns pinned-first, then recent; we keep
+   that order and only apply the local search filter + archived toggle.
+   ===================================================================== */
 
 // One-line preview text for the last message in a row
 function chatPreview(m) {
   if (!m) return "";
-  if (m.type === "image") return "📷 " + (m.caption || "Photo");
-  if (m.type === "voice") return "🎤 Voice message (" + W.fmtDur(m.duration) + ")";
-  if (m.type === "doc") return "📄 " + (m.filename || "Document");
+  var kind = m.kind || "text";
+  if (kind === "image") return "📷 " + (m.text || "Photo");
+  if (kind === "voice") return "🎤 Voice message";
   return m.text || "";
 }
 
@@ -19,11 +21,8 @@ function chatMatches(chat, q) {
   if (!q) return true;
   q = q.trim().toLowerCase();
   if ((chat.name || "").toLowerCase().indexOf(q) !== -1) return true;
-  var msgs = chat.messages || [];
-  for (var i = 0; i < msgs.length; i++) {
-    var hay = (msgs[i].text || "") + " " + (msgs[i].caption || "");
-    if (hay.toLowerCase().indexOf(q) !== -1) return true;
-  }
+  var last = chat.lastMessage;
+  if (last && (last.text || "").toLowerCase().indexOf(q) !== -1) return true;
   return false;
 }
 
@@ -31,55 +30,66 @@ W.renderChatList = function () {
   var list = W.$("chatList");
   if (!list) return;
 
-  var chats = (W.data && W.data.chats) || [] || [];
+  var chats = W.store.chats || [];
+  var me = W.myUsername ? W.myUsername() : null;
 
   // Archive visibility: archived chats hidden unless the archived view is open
   var visible = chats.filter(function (c) {
     return W.store.showArchived ? !!c.archived : !c.archived;
   });
 
-  // Pinned chats first, everything else in data (seed) order
-  var pinned = visible.filter(function (c) { return c.pinned; });
-  var rest = visible.filter(function (c) { return !c.pinned; });
-  var ordered = pinned.concat(rest).filter(function (c) { return chatMatches(c, W.store.search); });
+  var ordered = visible.filter(function (c) {
+    return chatMatches(c, W.store.search);
+  });
 
   var html = "";
   ordered.forEach(function (c) {
-    var last = (c.messages || [])[(c.msgs || []).length - 1];
+    var last = c.lastMessage || null;
     var snippet = chatPreview(last);
 
     // Group snippet: prefix the sender's first name
-    if (c.type === "group" && last && last.from !== "me") {
-      var first = String(last.from).split(" ")[0];
-      snippet = '<span class="snippet-text">' + W.esc(first) + ":</span> " + W.esc(snippet);
-    } else if (last && last.from === "me") {
-      // Own last message: show delivery ticks before the snippet
+    if (c.isGroup && last && !W.isMine(last)) {
+      var who = last.fromName || last.from || "";
+      var first = String(who).split(" ")[0];
+      snippet =
+        '<span class="snippet-text">' + W.esc(first) + ":</span> " + W.esc(snippet);
+    } else if (last && me && W.isMine(last)) {
+      // Own last message: show delivery ticks (from the server) before snippet
       snippet = W.msgTicks(last) + " " + W.esc(snippet);
     } else {
       snippet = W.esc(snippet);
     }
 
-    var unread = c.unread || 0;
+    var unread = c.unreadCount || 0;
     html +=
-      '<div class="chat-row' + (unread ? "" : "") +
-      (W.store.active && W.store.active.id === c.id ? " active" : "") +
-      '" data-chat="' + c.id + '">' +
-        '<img class="avatar lg" src="' + W.avatar(c.seed, 100) + '" alt="">' +
-        '<div class="chat-info">' +
-          '<div class="chat-top">' +
-            '<span class="chat-name">' + W.esc(c.name) +
-              (c.pinned ? W.icon("pin", "pin-ic") : "") +
-              (c.muted ? W.icon("bell-off", "mute-ic") : "") +
-            "</span>" +
-            '<span class="chat-time' + (unread ? " unread" : "") + '">' +
-              W.esc((last && last.time) || "") +
-            "</span>" +
-          "</div>" +
-          '<div class="chat-bottom">' +
-            '<span class="chat-snippet">' + snippet + "</span>" +
-            (unread ? '<span class="unread-badge">' + unread + "</span>" : "") +
-          "</div>" +
-        "</div>" +
+      '<div class="chat-row' +
+      (W.store.active === c.id ? " active" : "") +
+      '" data-chat="' +
+      W.esc(c.id) +
+      '">' +
+      '<img class="avatar lg" src="' +
+      W.avatar(W.chatSeed(c), 100) +
+      '" alt="">' +
+      '<div class="chat-info">' +
+      '<div class="chat-top">' +
+      '<span class="chat-name">' +
+      W.esc(c.name) +
+      (c.pinned ? W.icon("pin", "pin-ic") : "") +
+      (c.muted ? W.icon("bell-off", "mute-ic") : "") +
+      "</span>" +
+      '<span class="chat-time' +
+      (unread ? " unread" : "") +
+      '">' +
+      W.esc(W.listTime(last && last.ts)) +
+      "</span>" +
+      "</div>" +
+      '<div class="chat-bottom">' +
+      '<span class="chat-snippet">' +
+      snippet +
+      "</span>" +
+      (unread ? '<span class="unread-badge">' + unread + "</span>" : "") +
+      "</div>" +
+      "</div>" +
       "</div>";
   });
 
@@ -88,21 +98,24 @@ W.renderChatList = function () {
   // Click a row -> open the chat
   list.querySelectorAll(".chat-row").forEach(function (row) {
     row.addEventListener("click", function () {
-      var chat = W.getChat(row.getAttribute("data-chat"));
-      if (chat && W.openChat) W.openChat(chat);
+      if (W.openChat) W.openChat(row.getAttribute("data-chat"));
     });
   });
 
   // Archived toggle row: "Archived (n)"
   var bar = W.$("archivedBar");
   if (bar) {
-    var n = chats.filter(function (c) { return c.archived; }).length;
+    var n = chats.filter(function (c) {
+      return c.archived;
+    }).length;
     if (n > 0) {
       bar.style.display = "";
       bar.innerHTML =
         W.icon("archive", "arch-ic") +
         '<span class="arch-label">Archived</span>' +
-        '<span class="arch-count">' + n + "</span>";
+        '<span class="arch-count">' +
+        n +
+        "</span>";
       bar.onclick = function () {
         W.store.showArchived = !W.store.showArchived;
         W.renderChatList();
