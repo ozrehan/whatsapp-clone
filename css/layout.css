@@ -1,0 +1,202 @@
+/* =====================================================================
+   layout.css — app shell, sidebar, main pane, wallpapers, empty state,
+   responsive behavior
+   ===================================================================== */
+
+/* ---------- app shell ---------- */
+.app {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh; /* mobile browser chrome */
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+/* ---------- sidebar (chat list column) ---------- */
+.sidebar {
+  width: 35%;
+  min-width: 320px;
+  max-width: 440px;
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--divider);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  z-index: var(--z-header);
+}
+
+/* ---------- main pane (conversation column) ---------- */
+.main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background-color: var(--bg-app);
+}
+/* #mainPane is the same element the refactor targets for wallpapers */
+#mainPane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background-color: var(--bg-app);
+}
+
+/* ---------- wallpapers (set via data-wallpaper on #mainPane) ---------- */
+/* doodle — classic WhatsApp dark doodle: faint dot grid on app bg */
+#mainPane[data-wallpaper="doodle"] {
+  background-color: var(--bg-app);
+  background-image: radial-gradient(rgba(134, 150, 160, .13) 1px, transparent 1.5px);
+  background-size: 22px 22px;
+}
+/* dark — plain app background */
+#mainPane[data-wallpaper="dark"] {
+  background-color: var(--bg-app);
+  background-image: none;
+}
+/* waves — deep teal gradient wash */
+#mainPane[data-wallpaper="waves"] {
+  background-color: var(--bg-app);
+  background-image:
+    radial-gradient(120% 90% at 85% 10%, rgba(0, 168, 132, .14), transparent 55%),
+    radial-gradient(100% 80% at 10% 95%, rgba(83, 189, 235, .08), transparent 55%),
+    linear-gradient(160deg, #0b141a 0%, #0e1b20 45%, #123b33 130%);
+}
+/* grid — subtle blueprint grid lines */
+#mainPane[data-wallpaper="grid"] {
+  background-color: var(--bg-app);
+  background-image:
+    repeating-linear-gradient(0deg, rgba(134, 150, 160, .07) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(90deg, rgba(134, 150, 160, .07) 0 1px, transparent 1px 28px);
+}
+/* wallpaper option previews in the picker reuse the same paints */
+.wp-doodle { background-color: #0b141a; background-image: radial-gradient(rgba(134,150,160,.13) 1px, transparent 1.5px); background-size: 14px 14px; }
+.wp-dark   { background-color: #0b141a; }
+.wp-waves  { background-image: linear-gradient(160deg, #0b141a, #123b33); }
+.wp-grid   { background-color: #0b141a; background-image: repeating-linear-gradient(0deg, rgba(134,150,160,.12) 0 1px, transparent 1px 12px), repeating-linear-gradient(90deg, rgba(134,150,160,.12) 0 1px, transparent 1px 12px); }
+
+/* ---------- conversation view wrapper (refactor replaces inline style) ---------- */
+.conv-view {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.conv-view.hidden {
+  display: none;
+}
+
+/* ---------- empty state (no chat selected) ---------- */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  text-align: center;
+  padding: 40px 48px;
+  color: var(--text-dim);
+  border-bottom: 6px solid var(--green-dark);
+  background: var(--bg-panel);
+  min-height: 0;
+}
+.empty-state .big {
+  width: 120px;
+  height: 120px;
+  fill: var(--text-dim);
+  opacity: .45;
+}
+.empty-state h1 {
+  font-size: 32px;
+  font-weight: 300;
+  color: var(--text);
+  letter-spacing: .3px;
+}
+.empty-state p {
+  max-width: 480px;
+  line-height: 1.65;
+  font-size: 14px;
+}
+.empty-state .es-cta {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--green);
+  color: #062b25;
+  font-weight: 600;
+  font-size: 14.5px;
+  padding: 12px 22px;
+  border-radius: var(--radius-pill);
+  transition: filter var(--dur-fast) ease, transform var(--dur-fast) ease;
+}
+.empty-state .es-cta:hover { filter: brightness(1.08); }
+.empty-state .es-cta:active { transform: scale(.97); }
+
+/* back button inside conv header — desktop hidden, mobile shown */
+.conv-back-btn {
+  display: none;
+}
+
+/* =====================================================================
+   responsive — <= 760px: single column, chat opens full-screen
+   body.chat-open toggles which pane is visible (set by JS on open/back)
+   ===================================================================== */
+@media (max-width: 760px) {
+  .sidebar {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    border-right: none;
+  }
+  .main,
+  #mainPane {
+    display: none;
+    width: 100%;
+  }
+  body.chat-open .sidebar {
+    display: none;
+  }
+  body.chat-open .main,
+  body.chat-open #mainPane {
+    display: flex;
+  }
+  .conv-back-btn {
+    display: inline-flex;
+  }
+  .conv-actions .icon-btn.hide-mobile {
+    display: none;
+  }
+  .empty-state {
+    display: none; /* mobile never shows the desktop empty state */
+  }
+  .empty-state h1 { font-size: 26px; }
+  .empty-state .big { width: 88px; height: 88px; }
+}
+
+/* very narrow landscape / tiny heights */
+@media (max-height: 420px) {
+  .empty-state { gap: 10px; padding: 20px; }
+  .empty-state .big { width: 64px; height: 64px; }
+  .empty-state h1 { font-size: 22px; }
+}
+
+/* reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn, .empty-state .es-cta { transition: none; }
+}
+
+/* conversation view fills the main pane */
+#convView { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.conv-back { display: none; }
+@media (max-width: 760px) {
+  .conv-back { display: flex; }
+}
