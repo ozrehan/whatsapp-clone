@@ -1,11 +1,15 @@
 "use strict";
 window.W = window.W || {};
 
-/* settings.js — settings panel: profile (avatar seed cycler + name),
-   notification toggles, and chat wallpaper picker.
+/* =====================================================================
+   settings.js — settings panel: profile (from /api/me; avatar seed
+   cycler is a client-side cosmetic override), notification toggles and
+   chat wallpaper picker (both client-side, persisted to localStorage),
+   plus Log out.
    W.applyWallpaper(key) is safe to call at boot (app.js guards its
    presence); it also re-rings the selected wallpaper option when the
-   settings panel is open. */
+   settings panel is open.
+   ===================================================================== */
 
 (function () {
 
@@ -22,11 +26,14 @@ window.W = window.W || {};
     { key: "messagePreview", label: "Message preview", desc: "Show message text in notifications" }
   ];
 
-  var avatarCycle = 1; // cycles rehan-self-N
+  var avatarCycle = 1; // cycles <username>-N as a client-side override
 
   function profile() {
-    if (W.store && !W.store.profile) W.store.profile = {};
     return (W.store && W.store.profile) || {};
+  }
+
+  function mySeed() {
+    return (W.store && W.store.avatarSeed) || profile().seed || "me";
   }
 
   function settings() {
@@ -37,7 +44,10 @@ window.W = window.W || {};
   W.applyWallpaper = function (key) {
     var pane = document.getElementById("mainPane");
     if (pane) pane.dataset.wallpaper = key || "doodle";
-    if (W.store) W.store.wallpaper = key || "doodle";
+    if (W.store) {
+      W.store.wallpaper = key || "doodle";
+      if (W.savePrefs) W.savePrefs();
+    }
     // Update selected ring if the settings panel is currently open.
     var opts = document.querySelectorAll(".wp-option");
     opts.forEach(function (o) {
@@ -49,19 +59,19 @@ window.W = window.W || {};
     if (!W.openPanel) return;
     var p = profile();
     var s = settings();
-    var seed = p.seed || ("rehan-self-" + avatarCycle);
+    var seed = mySeed();
     var name = p.name || "You";
+    var username = p.username || "";
     var currentWp = (W.store && W.store.wallpaper) || "doodle";
 
     var html = "";
-    // Profile row.
+    // Profile row (server-owned name/username are display-only).
     html += '<div class="settings-profile">' +
       '<button class="settings-avatar" id="settingsAvatar" title="Change avatar">' +
         W.avatarImg(seed, 80) + "</button>" +
       '<div class="settings-profile-meta">' +
-        '<label class="settings-label">Your name</label>' +
-        '<input id="settingsName" class="settings-name-input" type="text" maxlength="40" value="' +
-          W.esc(name) + '">' +
+        '<div class="settings-name-static">' + W.esc(name) + "</div>" +
+        '<div class="settings-username">' + (username ? "@" + W.esc(username) : "") + "</div>" +
       "</div></div>";
 
     // Notification toggles.
@@ -87,36 +97,30 @@ window.W = window.W || {};
     });
     html += "</div></div>";
 
+    // Log out.
+    html += '<div class="info-section">' +
+      '<button class="info-row danger" id="logoutBtn">' +
+      W.icon("logout", "ic") +
+      "<span>Log out</span>" +
+      "</button></div>";
+
     W.openPanel("Settings", html);
 
-    // Avatar click → cycle seed 'rehan-self-N'.
+    // Avatar click → cycle a client-side seed override.
     var avBtn = W.$("#settingsAvatar");
     if (avBtn) {
       avBtn.addEventListener("click", function () {
         avatarCycle = (avatarCycle % 9) + 1;
-        var ns = "rehan-self-" + avatarCycle;
-        var prof = profile();
-        prof.seed = ns;
+        var base = (p.username || "me");
+        var ns = base + "-" + avatarCycle;
+        if (W.store) {
+          W.store.avatarSeed = ns;
+          if (W.savePrefs) W.savePrefs();
+        }
         avBtn.innerHTML = W.avatarImg(ns, 80);
         // Keep the sidebar header avatar in sync.
         var side = W.$("#sideAvatar");
-        if (side) side.innerHTML = W.avatarImg(ns, 40);
-      });
-    }
-
-    // Name input → store + sidebar header name.
-    var nameInput = W.$("#settingsName");
-    if (nameInput) {
-      var commitName = function () {
-        var v = nameInput.value.trim() || "You";
-        profile().name = v;
-        var sideName = W.$("#sideName");
-        if (sideName) sideName.textContent = v;
-      };
-      nameInput.addEventListener("change", commitName);
-      nameInput.addEventListener("keydown", function (ev) {
-        if (ev.key === "Enter") { nameInput.blur(); }
-        ev.stopPropagation(); // don't trigger global shortcuts while typing
+        if (side) side.src = W.avatar(ns, 80);
       });
     }
 
@@ -129,6 +133,7 @@ window.W = window.W || {};
           var st = settings();
           var now = st[key] !== false;
           st[key] = !now;
+          if (W.savePrefs) W.savePrefs();
           var tgl = row.querySelector(".toggle");
           if (tgl) tgl.classList.toggle("on", !now);
         });
@@ -139,6 +144,13 @@ window.W = window.W || {};
           W.applyWallpaper(opt.getAttribute("data-wp"));
         });
       });
+      // Log out.
+      var lo = W.$("#logoutBtn");
+      if (lo) {
+        lo.addEventListener("click", function () {
+          if (W.logout) W.logout();
+        });
+      }
     }
   };
 
