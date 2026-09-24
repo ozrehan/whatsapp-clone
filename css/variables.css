@@ -1,0 +1,65 @@
+/* =====================================================================
+   variables.css — WhatsApp Web dark theme tokens
+   Single source of truth for color, spacing, radius, shadow and z-index.
+   ===================================================================== */
+:root {
+  /* --- theme (WhatsApp Web dark) --- */
+  --bg-app:      #0b141a;  /* app shell + default chat wallpaper */
+  --bg-panel:    #111b21;  /* sidebar, input bar, slide-over panels */
+  --bg-header:   #202c33;  /* chat headers, search boxes, pickers */
+  --bg-hover:    #2a3942;  /* hover / active row background */
+  --bg-incoming: #202c33;  /* incoming message bubbles */
+  --bg-outgoing: #005c4b;  /* outgoing message bubbles */
+  --green:       #00a884;  /* primary accent: send button, unread, ticks-bg */
+  --green-dark:  #075e54;  /* dark accent: empty-state underline */
+  --tick-blue:   #53bdeb;  /* read receipts */
+  --text:        #e9edef;  /* primary text */
+  --text-dim:    #8696a0;  /* secondary text */
+  --divider:     #222d34;  /* hairline separators */
+
+  /* --- derived surfaces --- */
+  --bg-toast:    #1f2c34;  /* toast pill background */
+  --bg-input:    #2a3942;  /* composer pill (matches original) */
+  --bg-picker:   #233138;  /* emoji picker surface */
+  --scroll-thumb:#374045;  /* scrollbar + seen-status ring */
+  --meta-in:     #8696a0;  /* timestamps inside incoming bubbles */
+  --meta-out:    rgba(233, 237, 239, .65); /* timestamps inside outgoing bubbles */
+  --danger:      #ff3b30;  /* recorder dot, destructive actions */
+  --star-gold:   #ffd60a;  /* starred message mark */
+  --quote-bar:   var(--green);
+
+  /* --- group sender-name palette (JS falls back to --sender-default) --- */
+  --sender-default: #35cd96;
+  --sender-1: #ff9f43; --sender-2: #53bdeb; --sender-3: #e91e63;
+  --sender-4: #00a884; --sender-5: #35cd96; --sender-6: #a06ee1;
+  --sender-7: #ff6b6b; --sender-8: #ffd60a;
+
+  /* --- shape / motion --- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --shadow-bubble: 0 1px 1px rgba(0, 0, 0, .35);
+  --shadow-pop: 0 4px 24px rgba(0, 0, 0, .5);
+  --shadow-panel: -4px 0 24px rgba(0, 0, 0, .45);
+  --ease-out: cubic-bezier(.2, .9, .3, 1);
+  --dur-fast: .15s;
+  --dur-med: .25s;
+
+  /* --- type --- */
+  --font: "Segoe UI", Helvetica, Arial, sans-serif;
+
+  /* --- stacking --- */
+  --z-messages: 1;
+  --z-header: 2;
+  --z-popups: 50;
+  --z-panel: 200;
+  --z-status-list: 300;
+  --z-viewer: 400;
+  --z-toast: 500;
+}
+
+/* Small screens get a touch more contrast on dim text */
+@media (max-width: 760px) {
+  :root { --text-dim: #92a2ac; }
+}
