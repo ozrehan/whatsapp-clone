@@ -36,16 +36,26 @@ const FALLBACK_REPLIES = [
 ];
 
 function loadFrontendData() {
-  const dir = path.join(__dirname, "..", "..", "js", "data");
-  const sandbox = { window: {} };
-  vm.createContext(sandbox);
-  // Data files use both `window.W` and bare `W`; alias them to one object.
-  vm.runInContext("var W = window.W = window.W || {};", sandbox);
-  for (const f of ["chats.js", "messages.js", "replies.js", "statuses.js"]) {
-    const code = fs.readFileSync(path.join(dir, f), "utf8");
-    vm.runInContext(code, sandbox, { filename: f });
+  // In production the data files are bundled next to the function;
+  // locally they live at ../../js/data. Fall back to an empty stub.
+  const candidates = [
+    path.join(__dirname, "data"),
+    path.join(__dirname, "..", "..", "js", "data"),
+  ];
+  for (const dir of candidates) {
+    try {
+      const sandbox = { window: {} };
+      vm.createContext(sandbox);
+      // Data files use both `window.W` and bare `W`; alias them to one object.
+      vm.runInContext("var W = window.W = window.W || {};", sandbox);
+      for (const f of ["chats.js", "messages.js", "replies.js", "statuses.js"]) {
+        const code = fs.readFileSync(path.join(dir, f), "utf8");
+        vm.runInContext(code, sandbox, { filename: f });
+      }
+      return sandbox.window.W; // {data:{chats,attachMessages,statuses}, pick, brain, FALLBACKS}
+    } catch (e) { /* try next candidate */ }
   }
-  return sandbox.window.W; // {data:{chats,attachMessages,statuses}, pick, brain, FALLBACKS}
+  return { data: { chats: [], statuses: [] }, FALLBACKS: FALLBACK_REPLIES };
 }
 
 /* Build per-DM-contact reply pools by actually probing W.brain() from
