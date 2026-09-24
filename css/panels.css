@@ -669,3 +669,53 @@
 .media-thumb { background: none; border: none; padding: 0; cursor: pointer; border-radius: 8px; overflow: hidden; }
 .media-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; aspect-ratio: 1; }
 .newchat-list .chat-row { padding: 8px 16px; }
+
+/* contract patch — starred messages rows */
+.starred-row {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer;
+  padding: 12px 20px; color: var(--text); font-family: inherit;
+  border-bottom: 1px solid var(--divider);
+  transition: background var(--dur-fast) ease;
+}
+.starred-row:hover { background: var(--bg-header); }
+.starred-chat { font-size: 13px; color: var(--green); font-weight: 600; margin-bottom: 3px; }
+.starred-text { font-size: 14.5px; line-height: 1.45; word-break: break-word; }
+.starred-time { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+/* contract patch — new chat / new group panel */
+.nc-wrap { padding-bottom: 24px; }
+.nc-label { padding: 14px 20px 8px; }
+.nc-search { margin: 0 20px 6px; display: flex; align-items: center; gap: 8px; padding: 0 6px; }
+.nc-search .search-ic { flex-shrink: 0; }
+.nc-search input { background: none; border: none; }
+.nc-user { width: 100%; }
+.nc-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 20px 10px; }
+.nc-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-header); color: var(--text);
+  font-size: 13px; padding: 6px 8px 6px 12px; border-radius: var(--radius-pill);
+}
+.nc-chip b { cursor: pointer; font-size: 16px; line-height: 1; color: var(--text-dim); padding: 0 2px; }
+.nc-chip b:hover { color: #ff8a80; }
+.nc-create { margin: 16px 20px 0; width: calc(100% - 40px); }
+.nc-group-btn { color: var(--green); }
+.nc-group-btn .ic { color: var(--green); }
+
+/* contract patch — status composer */
+.status-compose { padding: 0 20px 6px; }
+.status-compose textarea {
+  resize: vertical; min-height: 56px; font-family: inherit;
+}
+.status-compose-row {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px;
+}
+.status-compose-row .icon-btn {
+  width: 44px; height: 44px; padding: 0;
+  background: var(--bg-header); color: var(--text-dim);
+}
+.status-compose-row .send-btn { width: 48px; height: 48px; padding: 0; }
+
+/* contract patch — settings profile (read-only) */
+.settings-name-static { font-size: 17px; font-weight: 600; color: var(--text); }
+.settings-username { font-size: 13.5px; color: var(--text-dim); margin-top: 3px; }
