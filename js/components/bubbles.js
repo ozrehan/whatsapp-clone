@@ -1,8 +1,16 @@
 "use strict";
 window.W = window.W || {};
 
+/* =====================================================================
+   bubbles.js — message bubble rendering + hover actions.
+   Message shape comes from the server:
+     { id, from, fromName, text, kind: "text"|"image"|"voice",
+       data (data-URL for image/voice), replyTo (message id),
+       ts, tick: "sent"|"read"|null, starredByMe }
+   Tick states are rendered EXACTLY as the server reports them.
+   ===================================================================== */
+
 // --- Sender name colours for group chats --------------------------------
-// Palette from the original; unknown names fall back to a hash pick.
 
 var NAME_COLORS = {
   Meera: "#ff9f43",
@@ -23,49 +31,88 @@ W.nameColor = function (n) {
   return NAME_FALLBACK[h % NAME_FALLBACK.length];
 };
 
-// --- Fake voice playback -------------------------------------------------
-// Only one voice note plays at a time; state lives in W._voice.
+// --- Real voice playback ------------------------------------------------
+// One voice note at a time; state lives in W._voice.
 
-W._voice = { interval: null, btn: null, bar: null };
+W._voice = { audio: null, btn: null, bar: null };
 
 W.toggleVoice = function (btn, chatId, msgId) {
-  var chat = W.getChat(chatId);
-  if (!chat) return;
-  var msg = null;
-  for (var i = 0; i < (chat.messages || []).length; i++) {
-    if (chat.messages[i].id === msgId) { msg = chat.messages[i]; break; }
-  }
-  if (!msg) return;
+  var m = W.findMessage ? W.findMessage(chatId, msgId) : null;
+  if (!m || !m.data) return;
 
-  // Pause the currently playing note (same or different)
-  function stopCurrent() {
-    if (W._voice.interval) clearInterval(W._voice.interval);
+  function reset() {
+    if (W._voice.audio) {
+      try {
+        W._voice.audio.pause();
+      } catch (e) {}
+      W._voice.audio.src = "";
+    }
     if (W._voice.btn) W._voice.btn.innerHTML = W.icon("play", "v-ic");
     if (W._voice.bar) W._voice.bar.style.width = "0%";
-    W._voice.interval = null;
+    W._voice.audio = null;
     W._voice.btn = null;
     W._voice.bar = null;
   }
 
-  var isThisOne = W._voice.btn === btn;
-  stopCurrent();
-  if (isThisOne) return; // was playing -> now paused
+  var wasThis = W._voice.btn === btn;
+  reset();
+  if (wasThis) return; // was playing -> now paused
 
-  // Start playing this one
+  var a = new Audio(m.data);
   var wrap = btn.closest(".voice-bubble");
   var fill = wrap ? wrap.querySelector(".voice-fill") : null;
-  btn.innerHTML = W.icon("pause", "v-ic");
+  var durEl = wrap ? wrap.querySelector(".voice-dur") : null;
+
+  a.addEventListener("loadedmetadata", function () {
+    if (durEl && isFinite(a.duration)) durEl.textContent = W.fmtDur(a.duration);
+  });
+  a.addEventListener("timeupdate", function () {
+    if (fill && a.duration) {
+      fill.style.width = Math.min(100, (a.currentTime / a.duration) * 100) + "%";
+    }
+  });
+  a.addEventListener("ended", reset);
+  a.addEventListener("error", function () {
+    W.toast("Can't play this voice note");
+    reset();
+  });
+
+  W._voice.audio = a;
   W._voice.btn = btn;
   W._voice.bar = fill;
-
-  var total = Math.max(1, Math.round((msg.duration || 5) * 10)); // 100ms steps
-  var step = 0;
-  W._voice.interval = setInterval(function () {
-    step++;
-    if (fill) fill.style.width = Math.min(100, (step / total) * 100) + "%";
-    if (step >= total) stopCurrent();
-  }, 100);
+  btn.innerHTML = W.icon("pause", "v-ic");
+  a.play().catch(function () {
+    W.toast("Can't play this voice note");
+    reset();
+  });
 };
+
+// --- Helpers -------------------------------------------------------------
+
+function kindLabel(kind) {
+  var labels = { image: "📷 Photo", voice: "🎤 Voice message" };
+  return labels[kind] || "Message";
+}
+
+// Resolve a replyTo message id into { from, text } for the quote block.
+// Prefers the server-supplied m.reply quote object; falls back to local lookup.
+function quoteOf(chatId, m) {
+  if (!m || !m.replyTo) return null;
+  var q = m.reply || (W.findMessage ? W.findMessage(chatId, m.replyTo) : null);
+  if (q) {
+    var from = W.isMine(q) ? "You" : q.fromName || q.from || "Message";
+    var text = q.text || kindLabel(q.kind);
+    if (text.length > 70) text = text.slice(0, 70) + "…";
+    return { from: from, text: text };
+  }
+  return { from: "Message", text: "Replied to a message" };
+}
+
+function msgSnippet(m) {
+  if (!m) return "";
+  if (m.text) return m.text.length > 70 ? m.text.slice(0, 70) + "…" : m.text;
+  return kindLabel(m.kind);
+}
 
 // --- Bubble body builders -----------------------------------------------
 
@@ -73,49 +120,60 @@ function bubbleInner(chat, m) {
   var inner = "";
 
   // Quoted / replied-to message
-  if (m.quote) {
+  var q = quoteOf(chat.id, m);
+  if (q) {
     inner +=
       '<div class="quoted">' +
-        '<div class="q-sender" style="color:' + W.nameColor(m.quote.from) + '">' +
-          W.esc(m.quote.from) +
-        "</div>" +
-        '<div class="q-text">' + W.esc(m.quote.text) + "</div>" +
+      '<div class="q-sender" style="color:' +
+      W.nameColor(q.from) +
+      '">' +
+      W.esc(q.from) +
+      "</div>" +
+      '<div class="q-text">' +
+      W.esc(q.text) +
+      "</div>" +
       "</div>";
   }
 
-  // Meta line: time + delivery ticks on own messages (+ star mark)
+  // Meta line: time + server delivery ticks on own messages (+ star mark)
   var metaHtml =
-    '<div class="msg-meta">' + W.esc(m.time || "") +
-    (m.from === "me" ? " " + W.msgTicks(m) : "") +
-    (W.isStarred(chat.id, m.id) ? " " + W.icon("star", "starred-mark") : "") +
+    '<div class="msg-meta">' +
+    W.esc(W.msgTime(m.ts)) +
+    (W.isMine(m) ? " " + W.msgTicks(m) : "") +
+    (m.starredByMe ? " " + W.icon("star-fill", "starred-mark") : "") +
     "</div>";
 
-  if (m.type === "image") {
+  if (m.kind === "image") {
     inner +=
-      '<div class="bubble-media" data-seed="' + W.esc(m.seed || "") + '" data-cap="' + W.esc(m.caption || "") + '">' +
-        '<img src="' + W.avatar(m.seed || "img", 400) + '" alt="">' +
-        metaHtml +
+      '<div class="bubble-media" data-cap="' +
+      W.esc(m.text || "") +
+      '">' +
+      '<img src="' +
+      W.esc(m.data || "") +
+      '" alt="">' +
+      metaHtml +
       "</div>";
-    if (m.caption) inner += '<div class="media-cap">' + W.esc(m.caption) + "</div>";
+    if (m.text) inner += '<div class="media-cap">' + W.esc(m.text) + "</div>";
     return inner;
-  } else if (m.type === "voice") {
+  } else if (m.kind === "voice") {
     inner +=
       '<div class="voice-bubble">' +
-        '<button class="voice-play" data-vchat="' + chat.id + '" data-vmsg="' + m.id + '">' +
-          W.icon("play", "v-ic") +
-        "</button>" +
-        '<div class="voice-track"><div class="voice-fill"></div></div>' +
-        '<span class="voice-dur">' + W.fmtDur(m.duration) + "</span>" +
-      "</div>";
-  } else if (m.type === "doc") {
-    inner +=
-      '<div class="doc-bubble">' +
-        '<div class="doc-ic">' + W.icon("doc", "d-ic") + "</div>" +
-        '<div class="doc-meta"><div class="doc-name">' + W.esc(m.filename || "Document") + "</div>" +
-        '<div class="doc-sub">' + W.esc(m.size || "") + "</div></div>" +
+      '<button class="voice-play" data-vchat="' +
+      W.esc(chat.id) +
+      '" data-vmsg="' +
+      W.esc(m.id) +
+      '">' +
+      W.icon("play", "v-ic") +
+      "</button>" +
+      '<div class="voice-track"><div class="voice-fill"></div></div>' +
+      '<span class="voice-dur">--:--</span>' +
       "</div>";
   } else {
-    inner += '<div class="msg-text">' + W.esc(m.text || "") + "</div>";
+    // text: preserve line breaks
+    inner +=
+      '<div class="msg-text">' +
+      W.esc(m.text || "").replace(/\n/g, "<br>") +
+      "</div>";
   }
 
   inner += metaHtml;
@@ -125,38 +183,69 @@ function bubbleInner(chat, m) {
 function hoverMenu(chat, m) {
   var menu =
     '<div class="hover-menu">' +
-    '<button class="hm-btn" data-act="reply" title="Reply">' + W.icon("reply", "hm-ic") + "</button>" +
-    '<button class="hm-btn" data-act="star" title="Star">' + W.icon("star", "hm-ic") + "</button>";
-  if (m.type !== "text" && m.text == null) {
-    // non-text bubbles: no copy button
-  } else {
-    menu += '<button class="hm-btn" data-act="copy" title="Copy">' + W.icon("copy", "hm-ic") + "</button>";
+    '<button class="hm-btn" data-act="reply" title="Reply">' +
+    W.icon("reply", "hm-ic") +
+    "</button>" +
+    '<button class="hm-btn" data-act="star" title="Star">' +
+    W.icon("star", "hm-ic") +
+    "</button>";
+  if (m.kind === "text" && m.text) {
+    menu +=
+      '<button class="hm-btn" data-act="copy" title="Copy">' +
+      W.icon("copy", "hm-ic") +
+      "</button>";
   }
-  menu += '<button class="hm-btn" data-act="delete" title="Delete">' + W.icon("trash", "hm-ic") + "</button>";
+  // Delete is server-side and only allowed on your own messages.
+  if (W.isMine(m)) {
+    menu +=
+      '<button class="hm-btn" data-act="delete" title="Delete">' +
+      W.icon("trash", "hm-ic") +
+      "</button>";
+  }
   menu += "</div>";
   return menu;
 }
 
 // --- Main render --------------------------------------------------------
 
-W.renderMessages = function () {
+W._msgSig = null; // last-rendered signature, to skip no-op poll rerenders
+
+W.renderMessages = function (opts) {
+  opts = opts || {};
   var box = W.$("messages");
-  var chat = W.store.active;
+  var chatId = W.store.active;
+  var chat = chatId ? W.getChat(chatId) : null;
   if (!box || !chat) return;
+
+  var msgs = W.getMessages(chatId);
+  var typing = W.store.typing[chatId] || [];
+
+  // Skip rerender when nothing changed (polling path).
+  var sig = msgs
+    .map(function (m) {
+      return m.id + ":" + (m.tick || "") + ":" + (m.starredByMe ? 1 : 0);
+    })
+    .join(",") + "|t:" + typing.map(function (t) { return t.username; }).join(",");
+  if (!opts.force && sig === W._msgSig) return;
+  W._msgSig = sig;
+
+  var nearBottom =
+    box.scrollHeight - box.scrollTop - box.clientHeight < 160 ||
+    box.scrollHeight === 0;
 
   var html = "";
   var lastDay = null;
   var prevFrom = null;
-  var msgs = chat.messages || [];
 
   for (var i = 0; i < msgs.length; i++) {
     var m = msgs[i];
-    var mine = m.from === "me";
+    var mine = W.isMine(m);
 
     // Day divider when the day changes
-    if (m.day !== lastDay) {
-      html += '<div class="day-pill">' + W.esc(W.dayLabel(m.day || "today")) + "</div>";
-      lastDay = m.day;
+    var day = W.dayOf(m.ts);
+    if (day !== lastDay) {
+      html += '<div class="day-pill">' + W.esc(day) + "</div>";
+      lastDay = day;
     }
 
     // Tail (pointy corner) on the first bubble of a sender run
@@ -165,61 +254,86 @@ W.renderMessages = function () {
 
     // Group sender name in the sender's colour (not on own bubbles)
     var senderName = "";
-    if (chat.type === "group" && !mine) {
+    if (chat.isGroup && !mine) {
+      var sname = m.fromName || m.from || "";
       senderName =
-        '<div class="sender-name" style="color:' + W.nameColor(m.from) + '">' +
-        W.esc(m.from) +
+        '<div class="sender-name" style="color:' +
+        W.nameColor(sname) +
+        '">' +
+        W.esc(sname) +
         "</div>";
     }
 
     html +=
-      '<div class="msg-row ' + (mine ? "out" : "in") + tail + '" data-mid="' + m.id + '">' +
-        '<div class="bubble">' +
-          senderName +
-          bubbleInner(chat, m) +
-        "</div>" +
-        hoverMenu(chat, m) +
+      '<div class="msg-row ' +
+      (mine ? "out" : "in") +
+      tail +
+      '" data-mid="' +
+      W.esc(m.id) +
+      '">' +
+      '<div class="bubble">' +
+      senderName +
+      bubbleInner(chat, m) +
+      "</div>" +
+      hoverMenu(chat, m) +
       "</div>";
   }
+
+  // Typing indicator bubble(s) from the server `typing` array
+  typing.forEach(function (t) {
+    var tname = t.name || t.username || "";
+    var nameHtml =
+      '<div class="sender-name" style="color:' +
+      W.nameColor(tname) +
+      '">' +
+      W.esc(tname) +
+      "</div>";
+    html +=
+      '<div class="msg-row in"><div class="bubble">' +
+      nameHtml +
+      '<div class="typing-dots"><span></span><span></span><span></span></div>' +
+      "</div></div>";
+  });
 
   box.innerHTML = html;
 
   // Wire interactions
   box.querySelectorAll(".msg-row").forEach(function (row) {
     var mid = row.getAttribute("data-mid");
-
-    function findMsg() {
-      var arr = chat.messages || [];
-      for (var j = 0; j < arr.length; j++) if (arr[j].id === mid) return arr[j];
-      return null;
-    }
+    if (!mid) return;
 
     // Hover menu actions
     row.querySelectorAll(".hm-btn").forEach(function (b) {
       b.addEventListener("click", function (e) {
         e.stopPropagation();
-        var m = findMsg();
+        var m = W.findMessage(chatId, mid);
         if (!m) return;
         var act = b.getAttribute("data-act");
 
         if (act === "reply") {
-          if (W.setReplyQuote) W.setReplyQuote(chat.id, m.id);
+          if (W.setReplyQuote) W.setReplyQuote(chatId, mid);
         } else if (act === "star") {
-          var now = W.toggleStar(chat.id, m.id);
-          W.toast(now ? "Starred" : "Unstarred");
-          W.renderMessages();
+          W.starMessage(mid).then(function (now) {
+            if (now === null) return;
+            m.starredByMe = now;
+            W._msgSig = null;
+            W.toast(now ? "Starred" : "Unstarred");
+            W.renderMessages({ force: true });
+          });
         } else if (act === "copy") {
-          var txt = m.text || m.caption || "";
+          var txt = m.text || "";
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(txt).catch(function () {});
           }
           W.toast("Copied");
         } else if (act === "delete") {
-          var idx = chat.messages.indexOf(m);
-          if (idx !== -1) chat.messages.splice(idx, 1);
-          W.toast("Message deleted");
-          W.renderMessages();
-          if (W.renderChatList) W.renderChatList();
+          W.deleteMessage(chatId, mid).then(function (ok) {
+            if (!ok) return;
+            W._msgSig = null;
+            W.toast("Message deleted");
+            W.renderMessages({ force: true });
+            if (W.renderChatList) W.renderChatList();
+          });
         }
       });
     });
@@ -233,15 +347,17 @@ W.renderMessages = function () {
       });
     }
 
-    // Image -> lightbox (lightbox.js owns W.openLightbox)
+    // Image -> lightbox with the real data-URL
     var iw = row.querySelector(".bubble-media");
     if (iw) {
       iw.addEventListener("click", function () {
-        if (W.openLightbox) W.openLightbox(iw.getAttribute("data-seed"), iw.getAttribute("data-cap"));
+        var m = W.findMessage(chatId, mid);
+        if (m && m.data && W.openLightbox) W.openLightbox(m.data, m.text || "");
       });
     }
   });
 
-  // Always scroll to the latest message
-  box.scrollTop = box.scrollHeight;
+  // Scroll to the latest message on first render, on send, or when the
+  // user was already near the bottom (avoids yanking during polling).
+  if (opts.scroll || nearBottom) box.scrollTop = box.scrollHeight;
 };
