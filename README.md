@@ -1,5 +1,8 @@
 # WhatsApp Web Clone
 
+
+**Live demo:** [https://peaceful-kangaroo-0bf66f.netlify.app](https://peaceful-kangaroo-0bf66f.netlify.app)
+
 A pixel-faithful **WhatsApp Web (dark theme)** clone in vanilla HTML/CSS/JS —
 no frameworks, no build step. The frontend is a **real client of a server
 API** (`/api`, same origin — see `netlify/functions/api.js`): accounts,
